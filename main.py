@@ -1,11 +1,14 @@
 import argparse
+import json
+
 from core import YandexMusicExporter
 from core import YoutubeImoirter
-import json
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='Train a model')
+    parser = argparse.ArgumentParser(
+        description='Transfer tracks from Yandex.Music to YouTube Music'
+    )
     parser.add_argument(
         '--yandex', type=str, help='Yandex Music token'
     )
