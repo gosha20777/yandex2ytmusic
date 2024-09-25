@@ -16,7 +16,11 @@ class YandexMusicExporter:
             with tqdm(total=0, bar_format='{desc}', position=1) as trank_log:
                 for track in tracks:
                     track = track.fetch_track()
-                    artist = track.artists_name()[0]
+                    # Safely handle the case where there are no artists
+                    if track.artists_name():
+                        artist = track.artists_name()[0]
+                    else:
+                        artist = "Unknown Artist"
                     name = track.title
                     result.append(Track(artist, name))
                     pbar.update(1)
