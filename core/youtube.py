@@ -1,5 +1,7 @@
 import os
 import json
+import time
+import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
@@ -109,6 +111,7 @@ class YoutubeImporter:
         search_results = {}  # idx -> (track, videoId, error)
 
         print("Поиск треков...")
+
         with tqdm(total=len(tracks), desc='Search') as pbar:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(self._search_track, track, idx): idx
@@ -146,14 +149,17 @@ class YoutubeImporter:
                     try:
                         self.ytmusic.rate_song(video_id, 'LIKE')
                         pbar.set_postfix_str(f'{track.artist} - {track.name}'[:40])
+                        time.sleep(random.uniform(1.0, 2.0))
                     except Exception as e:
                         errors.append(track)
                         pbar.write(f'Like error: {track.artist} - {track.name}: {e}')
+                        time.sleep(5) 
                     pbar.update(1)
         else:
             # Параллельное добавление (быстрее, но порядок случайный)
+            print("ВНИМАНИЕ: При параллельном импорте более 100 треков YouTube может не сохранить часть лайков!")
             with tqdm(total=len(tracks_to_like), desc='Like') as pbar:
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                with ThreadPoolExecutor(max_workers=2) as executor:
                     futures = {executor.submit(self._like_track, track, video_id): track
                               for idx, track, video_id in tracks_to_like}
 
@@ -165,6 +171,7 @@ class YoutubeImporter:
                                 errors.append(track)
                                 pbar.write(f'Like error: {track.artist} - {track.name}: {error}')
                             pbar.set_postfix_str(f'{track.artist} - {track.name}'[:40])
+                            time.sleep(1.5)
                         except Exception as e:
                             errors.append(track)
                             pbar.write(f'Like error: {track.artist} - {track.name}: {e}')
@@ -173,18 +180,54 @@ class YoutubeImporter:
         return not_found, errors
 
     def _get_best_result(self, results: List[dict], track: Track) -> dict:
-        songs = []
-        for result in results:
-            if 'videoId' not in result.keys():
-                continue
-            if result.get('category') == 'Top result':
+        # Приводим оригинальное название к нижнему регистру и убираем пробелы по краям
+        ya_title = track.name.lower().strip()
+        
+        # Разбиваем строку исполнителей ("Артист 1, Артист 2") в список
+        ya_artists = [a.strip().lower() for a in track.artist.split(',')]
+
+        # Оставляем только те результаты, у которых есть videoId (исключаем пустые карточки)
+        valid_songs = [r for r in results if r.get('videoId')]
+        
+        if not valid_songs:
+            # Если почему-то нет треков с videoId, возвращаем первый попавшийся элемент (или пустой словарь)
+            return results[0] if results else {}
+
+        best_partial_match = None
+
+        for result in valid_songs:
+            yt_title = result.get('title', '').lower().strip()
+            
+            # Получаем список исполнителей из ответа YouTube Music
+            yt_artists_list = result.get('artists', [])
+            yt_artists = [a.get('name', '').lower().strip() for a in yt_artists_list]
+
+            # Проверяем, совпадает ли хотя бы один исполнитель
+            artist_match = False
+            for ya_artist in ya_artists:
+                for yt_artist in yt_artists:
+                    # Проверяем вхождение
+                    if ya_artist in yt_artist or yt_artist in ya_artist:
+                        artist_match = True
+                        break
+                if artist_match:
+                    break
+            
+            # УСЛОВИЕ 1: Идеальное совпадение
+            if ya_title == yt_title and artist_match:
                 return result
-            if result.get('title') == track.name:
-                return result
-            songs.append(result)
-        if len(songs) == 0:
-            return results[0]
-        return songs[0]
+            
+            # УСЛОВИЕ 2: Частичное совпадение названия
+            if best_partial_match is None and artist_match and (ya_title in yt_title or yt_title in ya_title):
+                best_partial_match = result
+
+        # Если нашли частичное совпадение
+        if best_partial_match:
+            return best_partial_match
+
+        # Точных совпадений по тексту нет
+        # В таком случае просто доверяемся поисковику YouTube и берем самый первый трек из выдачи.
+        return valid_songs[0]
 
 
 # Алиас для обратной совместимости

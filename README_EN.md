@@ -1,188 +1,126 @@
-# yandex2ytmusic
+# Yandex Music to YouTube Music Transfer
 
-**[Русский язык](README.md)**
+A utility for automated transfer of saved track libraries from Yandex Music to YouTube Music.
 
-Transfer liked tracks from Yandex.Music to YouTube Music.
+[![Build Executables (Win & Linux)](https://github.com/kordmtal/yandex2ytmusic/actions/workflows/main.yml/badge.svg?branch=improvements)](https://github.com/kordmtal/yandex2ytmusic/actions/workflows/main.yml)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+[![License](https://img.shields.io/badge/license-MIT-weight)](LICENSE)
 
-**Fork of [gosha20777/yandex2ytmusic](https://github.com/gosha20777/yandex2ytmusic) with improvements.**
+## Execution
 
-## What's New
+### Windows
+1. Download the `yandex2ytmusic.exe` file from the [latest release](../../releases).
+2. Run `yandex2ytmusic.exe`.
+*(Note: Windows SmartScreen filter may warn about an unknown publisher. Click "More info" → "Run anyway" to launch).*
 
-| Feature | Original | This Version |
-|---------|----------|--------------|
-| Interactive menu | No (CLI flags only) | Yes |
-| Separate export/import | No | Yes |
-| Automatic YouTube auth | No | Yes (via Playwright) |
-| Browser authentication | No | Yes |
-| Multithreading | No | Yes (up to 5x faster) |
-| Import mode selection | No | Fast / Preserve order |
-| Progress saving between steps | No | Yes |
+### Linux (Ubuntu)
+1. Download the `yandex2ytmusic` binary from the [latest release](../../releases).
+2. Open a terminal in the directory with the file, grant execution permissions, and run the utility:
+   ```bash
+   chmod +x yandex2ytmusic
+   ./yandex2ytmusic
+   ```
 
-### Key Improvements
+---
 
-- **Interactive menu** — no need to remember command-line flags
-- **Separate export/import** — export tracks from Yandex first, then import to YouTube separately (solves session timeout issues with large libraries)
-- **Automatic authorization** — the program opens a browser and captures authentication data automatically
-- **Multithreading** — parallel track processing speeds up export and import up to 5x
-- **Import mode selection** — fast parallel mode or order-preserving mode
-- **Browser authentication** — more stable than OAuth, doesn't require creating a Google Cloud project
+## Running from Source Code (Linux / Ubuntu)
 
-## Installation
+Instructions for developers who wish to run the script directly using the Python interpreter.
 
 ```bash
+# Clone the repository
 git clone https://github.com/kirillqa17/yandex2ytmusic.git
 cd yandex2ytmusic
-pip install -r requirements.txt
+
+# Install Python dependencies
+pip3 install -r requirements.txt
+
+# Install Playwright and system browser libraries
+pip3 install playwright
+playwright install-deps
 playwright install chromium
+
+# Run the application
+python3 main.py
 ```
 
-## Usage
+---
 
-```bash
-python main.py
-```
+## Usage Instructions
 
-An interactive menu will appear:
+The transfer process is divided into several independent stages to prevent data loss and session expiration.
 
-```
-=== Yandex Music → YouTube Music ===
+### Step 1. Obtaining Yandex Music Token
 
-What do you want to do?
-  1. Full transfer (export from Yandex + import to YouTube)
-  2. Export from Yandex Music only
-  3. Import to YouTube Music only (from file)
-  4. Set up YouTube Music authorization
+To allow the program to read your "Liked tracks" list, you need to obtain a temporary access key (token).
 
-Choice (1-4):
-```
+1. Follow the link: [Get Yandex Token](https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d).
+2. Log in to your Yandex account and confirm access.
+3. After confirmation, you will be redirected to the **Yandex Music** home page.
+4. At this point, look at the **browser's address bar**. It will contain your token and look like this:
+   `https://music.yandex.ru/#access_token=`**`y0_AgAAAABp...`**`&token_type=bearer&expires_in=...`
+5. You need to copy only the token itself — the long string of characters located **after** `access_token=` and **before** the `&` symbol.
 
-When importing, you can choose the mode:
+**Example:**
+> If the browser bar shows: `...#access_token=`**`AQAAAAA...`**`&token_type=...`  
+> Copy only: **`AQAAAAA...`**
 
-```
-Import mode:
-  1. Fast (parallel, order not preserved)
-  2. Preserve order (slower)
-```
+6. Paste this token into the program when selecting **option 2** in the main menu.
 
-## Detailed Instructions
+> **Important:** The token provides temporary access to your data. Do not publish it openly or share it with third parties.
 
-### Step 1: Get Yandex Music Token
+### Step 2. Exporting from Yandex Music
+1. Run the utility and select menu option `2` (Export from Yandex Music only).
+2. Paste the copied token.
+3. Wait for the process to complete. The program will create a `tracks.json` file in the current directory, containing a list of all your saved tracks.
 
-1. Go to [oauth.yandex.ru/authorize](https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d)
-2. Sign in to your Yandex account
-3. Copy the token from the URL (`access_token` parameter)
+### Step 3. Setting up YouTube Music Authentication
 
-Or follow the [yandex-music documentation](https://yandex-music.readthedocs.io/en/main/token.html).
+To interact with your YouTube Music account, you must provide authentication data to the utility. **The manual method is the most reliable way.**
 
-### Step 2: Export Tracks from Yandex Music
+1. Run the utility and select menu option `4` (Setup YouTube Music authentication), then choose option `2` (Manual).
+2. Open the Firefox browser and go to [music.youtube.com](https://music.youtube.com). Make sure you are logged into your Google account.
+3. Open Developer Tools (**F12** or **Ctrl+Shift+I**).
+4. Go to the **Network** tab.
+5. In the filter field, type `browse`.
+6. Refresh the page or perform any action on the site (e.g., click the YouTube Music logo) to make the request appear in the list.
+7. Find a row named `browse?...` where the **Method** column says **POST**.
+8. Right-click on this request and copy the request headers:
+   - **In Firefox:** Copy Value → Copy Request Headers.
+9. Return to the terminal window with the running program.
+10. Paste the copied headers.
+11. To finish the input, press:
+    - **On Windows:** `Ctrl+Z`, then `Enter`.
+    - **On Linux:** `Ctrl+D`.
 
-```bash
-python main.py
-# Choose: 2. Export from Yandex Music only
-# Enter token
-```
+After these steps, the program will create a `browser.json` file, which will be used for subsequent track imports.
 
-Tracks will be saved to `tracks.json`. Multithreaded processing speeds up the process ~5x.
+### Step 4. Importing Tracks
+1. Select menu option `3` (Import to YouTube Music only) in the main menu.
+2. The utility will ask you to choose an import mode:
+   ### ATTENTION: During parallel import of more than 100 tracks, YouTube may fail to save some likes!
+   * **Fast (parallel):** tracks are added using multiple threads. The order of tracks in the resulting playlist is not guaranteed.
+   * **Keep order:** tracks are added sequentially. The playlist in YouTube Music will fully correspond to the order in Yandex Music.
 
-### Step 3: Set Up YouTube Music Authorization
-
-```bash
-python main.py
-# Choose: 4. Set up YouTube Music authorization
-```
-
-#### Option 1: Automatic via Browser (Recommended)
-
-1. Choose option "1. Automatic from browser"
-2. A browser will open — sign in to your Google account if needed
-3. Wait for YouTube Music to load
-4. The browser will close automatically after capturing data
-
-The program will automatically capture the required headers and create `browser.json`.
-
-#### Option 2: Manual (If Automatic Doesn't Work)
-
-1. Open [music.youtube.com](https://music.youtube.com) (sign in)
-2. Open DevTools (F12)
-3. Go to the **Network** tab
-4. Type `browse` in the filter
-5. Click on any page in YouTube Music
-6. Find a POST request to `browse?...` and click on it
-7. Copy Request Headers:
-   - **Firefox**: right-click → Copy Value → Copy Request Headers
-   - **Chrome**: right-click → Copy → Copy request headers
-8. Paste in terminal and press **Ctrl+D**
-
-### Step 4: Import Tracks to YouTube Music
-
-```bash
-python main.py
-# Choose: 3. Import to YouTube Music only (from file)
-# Choose mode: 1 (fast) or 2 (preserve order)
-```
-
-The program will load tracks from `tracks.json` and add them to your YouTube Music likes.
-
-## Import Modes
-
-| Mode | Speed | Track Order |
-|------|-------|-------------|
-| Fast | ~5x faster | Random |
-| Preserve order | Normal | Same as Yandex Music |
-
-In both modes, **track search** is performed in parallel (fast). The difference is only in adding likes.
-
-## Recommended Order for Large Libraries
-
-If you have many tracks (500+), it's recommended to split the process:
-
-1. **Export** (option 2) — takes time, but doesn't depend on YouTube
-2. **Set up authorization** (option 4) — do it right before import
-3. **Import** (option 3) — do it immediately after setting up authorization
-
-This solves the YouTube session timeout problem during long Yandex exports.
-
-## tracks.json File Structure
-
-```json
-{
-  "liked_tracks": [
-    {
-      "artist": "Queen",
-      "name": "Bohemian Rhapsody"
-    }
-  ],
-  "not_found": [],
-  "errors": []
-}
-```
-
-- `liked_tracks` — all tracks from Yandex Music
-- `not_found` — tracks not found on YouTube Music
-- `errors` — tracks that encountered errors during import
+---
 
 ## Troubleshooting
 
-### 401 Unauthorized Error
+| Error / Issue | Solution |
+|-------------------|---------|
+| **Error 401 Unauthorized** | The YouTube session has expired. Repeat Step 3 (Authentication Setup) to update the data in `browser.json`. |
+| **Tracks not transferred** | Due to regional licensing differences or naming variations, some tracks may not be found. The list of skipped tracks is available in the `tracks.json` file (`not_found` section). |
+| **Browser launch error (Linux)** | Ensure that the system dependencies for Chromium are installed. When running from source code, execute the `playwright install-deps` command. |
 
-YouTube session expired. Repeat step 3 (set up authorization).
+---
 
-### 400 Bad Request Error with OAuth
+## Credits and Dependencies
 
-Use Browser authentication instead of OAuth. It's more stable.
-
-### Automatic Authorization Doesn't Work
-
-- Make sure Playwright is installed: `pip install playwright && playwright install chromium`
-- Try the manual method (option 2)
-
-## Dependencies
-
-- [yandex-music](https://github.com/MarshalX/yandex-music-api) — Yandex Music API
-- [ytmusicapi](https://github.com/sigma67/ytmusicapi) — YouTube Music API
-- [playwright](https://playwright.dev/python/) — browser automation for authorization
-- [tqdm](https://github.com/tqdm/tqdm) — progress bar
+* Based on the source code by [@kirillqa17](https://github.com/kirillqa17).
+* Yandex Music API interaction: [yandex-music-api](https://github.com/MarshalX/yandex-music-api).
+* YouTube API interaction: [ytmusicapi](https://github.com/sigma67/ytmusicapi).
+* Browser automation: [Playwright](https://playwright.dev/python/).
 
 ## License
 
-MIT
+This project is distributed under the MIT License. See the `LICENSE` file for details.

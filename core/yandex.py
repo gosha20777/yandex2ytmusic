@@ -25,10 +25,13 @@ class YandexMusicExporter:
     def _process_track(self, track) -> Track:
         """Process a single track and return Track object."""
         fetched = self._fetch_with_retry(track)
+        
+        # Если исполнители есть, объединяем весь список через запятую
         if fetched.artists_name():
-            artist = fetched.artists_name()[0]
+            artist = ", ".join(fetched.artists_name())
         else:
             artist = "Unknown Artist"
+            
         name = fetched.title
         return Track(artist, name)
 

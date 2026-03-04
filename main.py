@@ -1,5 +1,9 @@
-import json
 import os
+import sys
+import json
+
+if getattr(sys, 'frozen', False):
+    os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '0'
 
 from core import YandexMusicExporter
 from core import YoutubeImoirter
@@ -49,6 +53,7 @@ def import_to_youtube(in_path: str, youtube_creds: str) -> None:
 
     # Выбор режима импорта
     print("\nРежим импорта:")
+    print("  ВНИМАНИЕ: При параллельном импорте более 100 треков YouTube может не сохранить часть лайков!")
     print("  1. Быстрый (параллельный, порядок не сохраняется)")
     print("  2. С сохранением порядка (медленнее)")
     mode_choice = input("\nВыбор (1-2): ").strip()
@@ -75,8 +80,8 @@ def import_to_youtube(in_path: str, youtube_creds: str) -> None:
 def setup_youtube_auth(creds_path: str) -> None:
     """Setup YouTube Music authentication."""
     print("\nВыбери способ авторизации YouTube Music:")
-    print("  1. Автоматически через браузер (откроется окно)")
-    print("  2. Вручную (вставить headers)")
+    print("  1. Автоматически через браузер (могут быть ошибки авторизации)")
+    print("  2. Вручную (вставить headers) <-- рекомендуется")
 
     choice = input("\nВыбор (1-2): ").strip()
 
@@ -93,9 +98,7 @@ def auto_browser_auth(creds_path: str) -> None:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print("Установи playwright:")
-        print("  pip install playwright")
-        print("  playwright install chromium")
+        print("Ошибка: Playwright не установлен.")
         return
 
     print("\nОткрою браузер для авторизации...")
@@ -123,8 +126,8 @@ def auto_browser_auth(creds_path: str) -> None:
             page.goto("https://music.youtube.com")
 
             # Ждём пока пользователь залогинится и headers будут перехвачены
-            print("Ожидание авторизации...")
-            for _ in range(120):  # Максимум 2 минуты
+            print("Ожидание авторизации (максимум 2 минуты)...")
+            for _ in range(120):  
                 page.wait_for_timeout(1000)
                 if captured_headers:
                     break
@@ -160,7 +163,7 @@ def auto_browser_auth(creds_path: str) -> None:
         print(f"\nАвторизация сохранена в {creds_path}")
 
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка запуска браузера: {e}")
         print("\nПопробуй ручной способ (вариант 2)")
 
 
@@ -174,7 +177,7 @@ def manual_browser_auth(creds_path: str) -> None:
     print("3. Вкладка Network, фильтр по 'browse'")
     print("4. Кликни на любой POST запрос к browse?...")
     print("5. Скопируй ВСЕ Request Headers")
-    print("\nВставь заголовки и нажми Ctrl+D:\n")
+    print("\nВставь заголовки и нажми Ctrl+D (или Ctrl+Z в Windows):\n")
 
     setup(filepath=creds_path)
 
@@ -203,25 +206,31 @@ def main() -> None:
     tracks_path = "tracks.json"
     youtube_creds = "browser.json"
 
-    print("=== Yandex Music → YouTube Music ===\n")
-    print("Что хочешь сделать?")
-    print("  1. Полный перенос (экспорт из Яндекса + импорт в YouTube)")
-    print("  2. Только экспорт из Яндекс Музыки")
-    print("  3. Только импорт в YouTube Music (из файла)")
-    print("  4. Настроить авторизацию YouTube Music")
+    while True:
+        print("\n=== Yandex Music → YouTube Music ===")
+        print("Что хочешь сделать?")
+        print("  1. Полный перенос (экспорт из Яндекса + импорт в YouTube)")
+        print("  2. Только экспорт из Яндекс Музыки")
+        print("  3. Только импорт в YouTube Music (из файла)")
+        print("  4. Настроить авторизацию YouTube Music")
+        print("  0. Выйти из программы")
 
-    choice = input("\nВыбор (1-4): ").strip()
+        choice = input("\nВыбор (0-4): ").strip()
 
-    if choice == "1":
-        full_transfer(tracks_path, youtube_creds)
-    elif choice == "2":
-        export_from_yandex(tracks_path)
-    elif choice == "3":
-        import_to_youtube(tracks_path, youtube_creds)
-    elif choice == "4":
-        setup_youtube_auth(youtube_creds)
-    else:
-        print("Неверный выбор")
+        match choice:
+            case "1":
+                full_transfer(tracks_path, youtube_creds)
+            case "2":
+                export_from_yandex(tracks_path)
+            case "3":
+                import_to_youtube(tracks_path, youtube_creds)
+            case "4":
+                setup_youtube_auth(youtube_creds)
+            case "0":
+                print("Завершение работы...")
+                break
+            case _:
+                print("Неверный выбор. Введите число от 0 до 4.")
 
 
 if __name__ == '__main__':
