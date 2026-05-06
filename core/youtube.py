@@ -1,6 +1,9 @@
 import os
 import json
+import time
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 
 from tqdm import tqdm
 from ytmusicapi import YTMusic, setup_oauth
@@ -19,6 +22,7 @@ class YoutubeImporter:
         """
         self.token_path = token_path
         self.client_secrets_path = client_secrets_path
+        self.search_ytmusic = YTMusic()
 
         if os.path.exists(token_path):
             with open(token_path, 'r') as f:
@@ -29,7 +33,7 @@ class YoutubeImporter:
 
             if 'cookie' in data or 'Cookie' in data or 'x-origin' in data:
                 self.auth_type = 'browser'
-                self.ytmusic = YTMusic(token_path)
+                self.ytmusic = YTMusic(self._sanitize_browser_headers(data))
             else:
                 self.auth_type = 'oauth'
                 if not client_secrets_path or not os.path.exists(client_secrets_path):
@@ -66,23 +70,115 @@ class YoutubeImporter:
 
         self.ytmusic = YTMusic(token_path, oauth_credentials=self.oauth_credentials)
 
+    @staticmethod
+    def _sanitize_browser_headers(headers: dict) -> dict:
+        """
+        Keep only headers supported by ytmusicapi browser auth.
+        Some manually copied header dumps include pseudo/invalid keys that break requests.
+        """
+        allowed = {
+            'accept',
+            'accept-language',
+            'authorization',
+            'content-type',
+            'cookie',
+            'origin',
+            'referer',
+            'user-agent',
+            'x-goog-authuser',
+            'x-goog-visitor-id',
+            'x-origin',
+            'x-youtube-bootstrap-logged-in',
+            'x-youtube-client-name',
+            'x-youtube-client-version',
+        }
+        normalized = {}
+        for key, value in headers.items():
+            lowered = key.lower()
+            if lowered in allowed:
+                normalized[lowered] = value
+        return normalized
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        value = value.lower().strip()
+        value = re.sub(r'\[[^\]]*\]|\([^)]*\)', ' ', value)
+        value = re.sub(r'[\W_]+', ' ', value, flags=re.UNICODE)
+        return re.sub(r'\s+', ' ', value).strip()
+
+    def _build_queries(self, track: Track) -> List[str]:
+        artist = track.artist.strip()
+        name = track.name.strip()
+        candidates = [f"{artist} {name}", f"{name} {artist}", name]
+        uniq: List[str] = []
+        seen = set()
+        for q in candidates:
+            key = q.lower()
+            if key and key not in seen:
+                seen.add(key)
+                uniq.append(q)
+        return uniq
+
+    def _score_result(self, result: dict, track: Track) -> float:
+        title = self._normalize_text(result.get('title', ''))
+        target_title = self._normalize_text(track.name)
+        title_score = SequenceMatcher(None, target_title, title).ratio()
+
+        target_artist = self._normalize_text(track.artist)
+        artists = result.get('artists') or []
+        result_artists = " ".join(a.get('name', '') for a in artists if isinstance(a, dict))
+        result_artists = self._normalize_text(result_artists)
+        artist_score = SequenceMatcher(None, target_artist, result_artists).ratio() if result_artists else 0.0
+
+        return (title_score * 0.75) + (artist_score * 0.25)
+
+    def _search_candidates(self, query: str, search_filter: Optional[str]) -> List[dict]:
+        last_error = None
+        for attempt in range(3):
+            try:
+                return self.search_ytmusic.search(query, filter=search_filter)
+            except Exception as e:
+                last_error = e
+                if attempt < 2:
+                    time.sleep(1.0 * (attempt + 1))
+        if last_error:
+            raise last_error
+        return []
+
     def _search_track(self, track: Track, idx: int) -> Tuple[int, Track, Optional[str], Optional[str]]:
         """
         Search for a track on YouTube Music.
         Returns (index, track, videoId or None, error or None).
         """
-        query = f'{track.artist} {track.name}'
+        best_result = None
+        best_score = 0.0
 
         try:
-            results = self.ytmusic.search(query, filter='songs')
+            for query in self._build_queries(track):
+                for search_filter in ('songs', 'videos', None):
+                    results = self._search_candidates(query, search_filter)
+                    if not results:
+                        continue
+
+                    for result in results:
+                        if 'videoId' not in result:
+                            continue
+                        score = self._score_result(result, track)
+                        if score > best_score:
+                            best_score = score
+                            best_result = result
+
+                    if best_score >= 0.82:
+                        break
+                if best_score >= 0.82:
+                    break
         except Exception as e:
             return (idx, track, None, str(e))
 
-        if not results:
+        if not best_result:
             return (idx, track, None, 'not_found')
 
-        result = self._get_best_result(results, track)
-        return (idx, track, result.get('videoId'), None)
+        return (idx, track, best_result.get('videoId'), None)
 
     def _like_track(self, track: Track, video_id: str) -> Tuple[Track, bool, Optional[str]]:
         """Like a single track. Returns (track, success, error)."""
@@ -90,7 +186,10 @@ class YoutubeImporter:
             self.ytmusic.rate_song(video_id, 'LIKE')
             return (track, True, None)
         except Exception as e:
-            return (track, False, str(e))
+            message = str(e)
+            if '401' in message or 'Unauthorized' in message:
+                message = '401 Unauthorized (истекла авторизация YouTube, запусти пункт 4 заново)'
+            return (track, False, message)
 
     def import_liked_tracks(self, tracks: List[Track], max_workers: int = 5, keep_order: bool = True) -> Tuple[List[Track], List[Track]]:
         """
@@ -129,10 +228,10 @@ class YoutubeImporter:
         for idx in range(len(tracks)):
             track, video_id, error = search_results[idx]
 
-            if error == 'not_found' or not video_id:
-                not_found.append(track)
-            elif error:
+            if error and error != 'not_found':
                 errors.append(track)
+            elif error == 'not_found' or not video_id:
+                not_found.append(track)
             else:
                 tracks_to_like.append((idx, track, video_id))
 
