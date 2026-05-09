@@ -2,7 +2,7 @@
 
 **[Русский язык](README.md)**
 
-Transfer liked tracks from Yandex.Music to YouTube Music.
+Transfer liked tracks, playlists and podcasts from Yandex.Music to YouTube Music.
 
 **Fork of [gosha20777/yandex2ytmusic](https://github.com/gosha20777/yandex2ytmusic) with improvements.**
 
@@ -21,7 +21,7 @@ Transfer liked tracks from Yandex.Music to YouTube Music.
 ### Key Improvements
 
 - **Interactive menu** — no need to remember command-line flags
-- **Separate export/import** — export tracks from Yandex first, then import to YouTube separately (solves session timeout issues with large libraries)
+- **Separate export/import** — export tracks, playlists and podcasts from Yandex first, then import to YouTube separately (solves session timeout issues with large libraries)
 - **Automatic authorization** — the program opens a browser and captures authentication data automatically
 - **Multithreading** — parallel track processing speeds up export and import up to 5x
 - **Import mode selection** — fast parallel mode or order-preserving mode
@@ -74,7 +74,7 @@ Import mode:
 
 Or follow the [yandex-music documentation](https://yandex-music.readthedocs.io/en/main/token.html).
 
-### Step 2: Export Tracks from Yandex Music
+### Step 2: Export Tracks and podcasts from Yandex Music
 
 ```bash
 python main.py
@@ -82,7 +82,7 @@ python main.py
 # Enter token
 ```
 
-Tracks will be saved to `tracks.json`. Multithreaded processing speeds up the process ~5x.
+Tracks, playlists and podcasts will be saved to `tracks.json`. Multithreaded processing speeds up the process ~5x.
 
 ### Step 3: Set Up YouTube Music Authorization
 
@@ -113,7 +113,7 @@ The program will automatically capture the required headers and create `browser.
    - **Chrome**: right-click → Copy → Copy request headers
 8. Paste in terminal and press **Ctrl+D**
 
-### Step 4: Import Tracks to YouTube Music
+### Step 4: Import Tracks and Podcasts to YouTube Music
 
 ```bash
 python main.py
@@ -121,7 +121,7 @@ python main.py
 # Choose mode: 1 (fast) or 2 (preserve order)
 ```
 
-The program will load tracks from `tracks.json` and add them to your YouTube Music likes.
+The program will load, playlists and podcasts from `tracks.json` and add them to your YouTube Music likes.
 
 ## Import Modes
 
@@ -130,7 +130,7 @@ The program will load tracks from `tracks.json` and add them to your YouTube Mus
 | Fast | ~5x faster | Random |
 | Preserve order | Normal | Same as Yandex Music |
 
-In both modes, **track search** is performed in parallel (fast). The difference is only in adding likes.
+In both modes, **search** is performed in parallel (fast). The difference is only in adding likes.
 
 ## Recommended Order for Large Libraries
 
@@ -146,6 +146,24 @@ This solves the YouTube session timeout problem during long Yandex exports.
 
 ```json
 {
+  "playlists": [
+    {
+      "title": "My favorite songs",
+      "description": "Check out this playlist!",
+      "tracks": [
+        {
+          "artist": "Queen",
+          "name": "Bohemian Rhapsody"
+        }
+      ]
+    }
+  ],
+  "liked_podcasts": [
+    {
+      "label": "Sample Podcast Label",
+      "name": "Sample Podcast"
+    }
+  ],
   "liked_tracks": [
     {
       "artist": "Queen",
@@ -156,7 +174,8 @@ This solves the YouTube session timeout problem during long Yandex exports.
   "errors": []
 }
 ```
-
+- `playlists` — all playlists from Yanddex Music
+- `liked_podcasts` — all podcasts from Yandex Music
 - `liked_tracks` — all tracks from Yandex Music
 - `not_found` — tracks not found on YouTube Music
 - `errors` — tracks that encountered errors during import
