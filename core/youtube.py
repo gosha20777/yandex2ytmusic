@@ -254,21 +254,6 @@ class YoutubeImporter:
         return not_found, errors
     
     def import_tracks_to_playlist(self, tracks: List[Track], playlist_title: str, max_workers: int = 5, batch_size: int = 50) -> Tuple[List[Track], List[Track]]:
-        """
-        Import tracks into a specific playlist instead of likes.
-
-        Finds an existing library playlist with the given title,
-        or creates a new one. Tracks are added in order.
-
-        Args:
-            tracks: List of tracks to import
-            playlist_title: Title of the target playlist
-            max_workers: Number of parallel workers for search (default 5)
-            batch_size: How many tracks to add per request (default 50)
-
-        Returns:
-            Tuple[List[Track], List[Track]]: not found tracks and tracks with errors
-        """
         not_found: List[Track] = []
         errors: List[Track] = []
 
