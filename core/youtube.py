@@ -253,6 +253,78 @@ class YoutubeImporter:
 
         return not_found, errors
     
+    def import_tracks_to_playlist(self, tracks: List[Track], playlist_title: str, max_workers: int = 5, batch_size: int = 50) -> Tuple[List[Track], List[Track]]:
+        not_found: List[Track] = []
+        errors: List[Track] = []
+
+        # Этап 1: Параллельный поиск
+        search_results = {}  # idx -> (track, videoId, error)
+
+        print("Поиск треков...")
+        with tqdm(total=len(tracks), desc='Search') as pbar:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(self._search_track, track, idx): idx
+                          for idx, track in enumerate(tracks)}
+
+                for future in as_completed(futures):
+                    try:
+                        idx, track, video_id, error = future.result()
+                        search_results[idx] = (track, video_id, error)
+                        pbar.set_postfix_str(f'{track.artist} - {track.name}'[:40])
+                    except Exception as e:
+                        idx = futures[future]
+                        search_results[idx] = (tracks[idx], None, str(e))
+                    pbar.update(1)
+
+        # Собираем треки для добавления (в исходном порядке)
+        tracks_to_add = []  # (track, video_id)
+        for idx in range(len(tracks)):
+            track, video_id, error = search_results[idx]
+
+            if error == 'not_found' or not video_id:
+                not_found.append(track)
+            elif error:
+                errors.append(track)
+            else:
+                tracks_to_add.append((track, video_id))
+
+        if not tracks_to_add:
+            return not_found, errors
+
+        # Этап 2: Ищем существующий плейлист или создаём новый
+        playlist_id = None
+        try:
+            for pl in self.ytmusic.get_library_playlists(limit=None):
+                if pl.get('title') == playlist_title:
+                    playlist_id = pl.get('playlistId')
+                    break
+        except Exception as e:
+            print(f'Не удалось получить список плейлистов: {e}')
+
+        if playlist_id:
+            print(f'Найден существующий плейлист "{playlist_title}", добавляю треки в него.')
+        else:
+            result = self.ytmusic.create_playlist(playlist_title, 'Импортировано из Яндекс Музыки')
+            if not isinstance(result, str):
+                raise RuntimeError(f'Не удалось создать плейлист "{playlist_title}": {result}')
+            playlist_id = result
+            print(f'Создан новый плейлист "{playlist_title}".')
+
+        # Этап 3: Добавление треков пачками (порядок сохраняется)
+        print("Добавление треков в плейлист...")
+        with tqdm(total=len(tracks_to_add), desc='Add') as pbar:
+            for i in range(0, len(tracks_to_add), batch_size):
+                batch = tracks_to_add[i:i + batch_size]
+                video_ids = [video_id for _, video_id in batch]
+                try:
+                    self.ytmusic.add_playlist_items(playlist_id, video_ids, duplicates=True)
+                except Exception as e:
+                    errors.extend(track for track, _ in batch)
+                    pbar.write(f'Add error ({len(batch)} треков): {e}')
+                pbar.update(len(batch))
+
+        return not_found, errors
+
     def import_liked_podcasts(self, podcasts: List[Podcast], max_workers: int = 5, keep_order: bool = True) -> Tuple[List[Podcast], List[Podcast]]:
         """
         Import podcasts to YouTube Music.

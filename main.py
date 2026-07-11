@@ -56,19 +56,32 @@ def import_to_youtube(in_path: str, youtube_creds: str) -> None:
     with open(in_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    tracks = [Track(artist=t['artist'], name=t['name']) for t in data['liked_tracks']]
+    tracks = [Track(artist=t['artist'], name=t['name']) for t in data.get('liked_tracks', [])]
     print(f'Загружено {len(tracks)} треков из {in_path}')
 
-    podcasts = [Podcast(label=p['label'], name=p['name']) for p in data['liked_podcasts']]
+    podcasts = [Podcast(label=p['label'], name=p['name']) for p in data.get('liked_podcasts', [])]
     print(f'Загружено {len(podcasts)} подкастов из {in_path}')
 
     playlists = []
-    for playlist in data['playlists']:
+    for playlist in data.get('playlists', []):
         tracklist = []
         for track in playlist['tracks']:
             tracklist.append(Track(track['artist'], track['name']))
         playlists.append(Playlist(playlist['title'], playlist['description'], tracklist))
     print(f'Загружено {len(playlists)} плейлистов из {in_path}')
+
+    # Куда импортировать треки
+    print("\nКуда импортировать лайкнутые треки?")
+    print("  1. В лайки YouTube Music")
+    print("  2. В плейлист (существующий или новый)")
+    dest_choice = input("\nВыбор (1-2): ").strip()
+
+    playlist_title = None
+    if dest_choice == "2":
+        playlist_title = input("Название плейлиста: ").strip()
+        if not playlist_title:
+            playlist_title = "Yandex Music"
+            print(f'Название не указано, использую "{playlist_title}"')
 
     # Выбор режима импорта
     print("\nРежим импорта:")
@@ -80,8 +93,12 @@ def import_to_youtube(in_path: str, youtube_creds: str) -> None:
 
     exporter = YoutubeImporter(youtube_creds)
 
-    print('Импорт треков в YouTube Music...')
-    tracks_not_found, tracks_errors = exporter.import_liked_tracks(tracks, keep_order=keep_order)
+    if playlist_title:
+        print(f'Импорт треков в плейлист "{playlist_title}"...')
+        tracks_not_found, tracks_errors = exporter.import_tracks_to_playlist(tracks, playlist_title)
+    else:
+        print('Импорт треков в YouTube Music...')
+        tracks_not_found, tracks_errors = exporter.import_liked_tracks(tracks, keep_order=keep_order)
     data['not_found'] = [{'artist': t.artist, 'name': t.name} for t in tracks_not_found]
     data['errors'] = [{'artist': t.artist, 'name': t.name} for t in tracks_errors]
 
@@ -91,23 +108,27 @@ def import_to_youtube(in_path: str, youtube_creds: str) -> None:
 
     print()
 
-    print('Импорт плейлистов в YouTube Music...')
-    playlist_errors = exporter.import_playlists(playlists)
-    data['errors'].extend([{'title': p.title} for p in playlist_errors])
+    playlist_errors = []
+    if playlists:
+        print('Импорт плейлистов в YouTube Music...')
+        playlist_errors = exporter.import_playlists(playlists)
+        data['errors'].extend([{'title': p.title} for p in playlist_errors])
 
-    print(f'{len(playlist_errors)} ошибок при создании плейлистов.')
-    
-    print()
-    
-    print('Импорт подкастов в YouTube Music...')
-    podcasts_not_found, podcasts_errors = exporter.import_liked_podcasts(podcasts, keep_order=keep_order)
+        print(f'{len(playlist_errors)} ошибок при создании плейлистов.')
 
-    data['not_found'].extend([{'label': p.label, 'name': p.name} for p in podcasts_not_found])
-    data['errors'].extend([{'label': p.label, 'name': p.name} for p in podcasts_errors])
+        print()
 
-    for podcast in podcasts_not_found:
-        print(f'Не найдено: {podcast.label} - {podcast.name}')
-    print(f'Подкастов: {len(podcasts_not_found)} не найдено, {len(podcasts_errors)} ошибок.')
+    podcasts_not_found, podcasts_errors = [], []
+    if podcasts:
+        print('Импорт подкастов в YouTube Music...')
+        podcasts_not_found, podcasts_errors = exporter.import_liked_podcasts(podcasts, keep_order=keep_order)
+
+        data['not_found'].extend([{'label': p.label, 'name': p.name} for p in podcasts_not_found])
+        data['errors'].extend([{'label': p.label, 'name': p.name} for p in podcasts_errors])
+
+        for podcast in podcasts_not_found:
+            print(f'Не найдено: {podcast.label} - {podcast.name}')
+        print(f'Подкастов: {len(podcasts_not_found)} не найдено, {len(podcasts_errors)} ошибок.')
 
     print(f'Итого: {len(tracks_not_found) + len(podcasts_not_found)} не найдено, {len(tracks_errors) + len(podcasts_errors)} ошибок.')
 
