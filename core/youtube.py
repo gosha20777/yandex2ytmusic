@@ -1,6 +1,10 @@
 import os
 import json
+import re
+import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 
 from tqdm import tqdm
 from ytmusicapi import YTMusic, setup_oauth
@@ -8,6 +12,19 @@ from typing import List, Tuple, Optional
 from .track import Track
 from .podcast import Podcast
 from .playlist import Playlist
+
+
+def _normalize(text: str) -> str:
+    text = unicodedata.normalize('NFKD', text.casefold().replace('ø', 'o'))
+    text = ''.join(c for c in text if not unicodedata.combining(c))
+    return ' '.join(re.sub(r'[^\w]+', ' ', text).split())
+
+
+def _similarity(a: str, b: str) -> float:
+    a, b = _normalize(a), _normalize(b)
+    if a and b and (f' {a} ' in f' {b} ' or f' {b} ' in f' {a} '):
+        return max(SequenceMatcher(None, a, b).ratio(), 0.9)  # "USS" vs "USS (Ubiquitous Synergy Seeker)"
+    return SequenceMatcher(None, a, b).ratio()
 
 
 class YoutubeImporter:
@@ -84,7 +101,9 @@ class YoutubeImporter:
             return (idx, track, None, 'not_found')
 
         result = self._get_best_result(results, track)
-        return (idx, track, result.get('videoId'), None)
+        if result is None:
+            return (idx, track, None, 'not_found')
+        return (idx, track, result['videoId'], None)
     
     def _search_podcast(self, podcast: Podcast, idx: int) -> Tuple[int, Podcast, Optional[str], Optional[str]]:
         """
@@ -251,6 +270,19 @@ class YoutubeImporter:
                             pbar.write(f'Like error: {track.artist} - {track.name}: {e}')
                         pbar.update(1)
 
+        # YouTube sometimes drops likes without returning an error: retry the ones that didn't stick
+        failed = set(errors)
+        liked_ids = {s['videoId'] for s in self.ytmusic.get_liked_songs(limit=None)['tracks']}
+        missing = [(track, video_id) for _, track, video_id in tracks_to_like
+                   if video_id not in liked_ids and track not in failed]
+        if missing:
+            print(f"Повторяю лайки, которые не сохранились: {len(missing)}")
+            for track, video_id in tqdm(missing, desc='Retry'):
+                self._like_track(track, video_id)
+                time.sleep(1)
+            liked_ids = {s['videoId'] for s in self.ytmusic.get_liked_songs(limit=None)['tracks']}
+            errors += [track for track, video_id in missing if video_id not in liked_ids]
+
         return not_found, errors
     
     def import_liked_podcasts(self, podcasts: List[Podcast], max_workers: int = 5, keep_order: bool = True) -> Tuple[List[Podcast], List[Podcast]]:
@@ -365,19 +397,20 @@ class YoutubeImporter:
                 pbar.update(1)
         return errors
 
-    def _get_best_result(self, results: List[dict], track: Track) -> dict:
-        songs = []
+    def _get_best_result(self, results: List[dict], track: Track) -> Optional[dict]:
+        """Return the result closest to the track by artist and title, or None if none matches both."""
+        best, best_score = None, 0.0
         for result in results:
-            if 'videoId' not in result.keys():
+            if not result.get('videoId'):
                 continue
-            if result.get('category') == 'Top result':
-                return result
-            if result.get('title') == track.name:
-                return result
-            songs.append(result)
-        if len(songs) == 0:
-            return results[0]
-        return songs[0]
+            artist = max((_similarity(track.artist, a['name']) for a in result.get('artists') or []), default=0.0)
+            title = result.get('title', '')
+            # "Title (feat. X)" still matches "Title", but ranks below an exact title
+            title_score = max(_similarity(track.name, title),
+                              0.9 * _similarity(track.name, re.sub(r'\s*[(\[].*?[)\]]', '', title)))
+            if artist >= 0.85 and title_score >= 0.8 and artist + title_score > best_score:
+                best, best_score = result, artist + title_score
+        return best
 
 
 # Алиас для обратной совместимости

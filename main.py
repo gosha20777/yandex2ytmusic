@@ -216,10 +216,16 @@ def manual_browser_auth(creds_path: str) -> None:
     print("2. Открой DevTools (F12)")
     print("3. Вкладка Network, фильтр по 'browse'")
     print("4. Кликни на любой POST запрос к browse?...")
-    print("5. Скопируй ВСЕ Request Headers")
-    print("\nВставь заголовки и нажми Ctrl+D:\n")
+    print("5. Скопируй ВСЕ Request Headers и сохрани их в текстовый файл")
+    print("\nТерминал может обрезать длинную строку cookie при вставке, поэтому лучше через файл.")
+    headers_path = input("Путь к файлу с заголовками (Enter — вставить вручную): ").strip().strip("'\"")
 
-    setup(filepath=creds_path)
+    if headers_path:
+        with open(os.path.expanduser(headers_path), encoding='utf-8') as f:
+            setup(filepath=creds_path, headers_raw=f.read())
+    else:
+        print("\nВставь заголовки и нажми Ctrl+D (Ctrl+Z и Enter в Windows):\n")
+        setup(filepath=creds_path)
 
     if os.path.exists(creds_path):
         print(f"\nАвторизация сохранена в {creds_path}")
